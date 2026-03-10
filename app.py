@@ -100,7 +100,7 @@ if data is not None:
     query_str = st.text_input("Enter Trader Logic Query:", value="Day == 'Wednesday' and Gap > 0")
 
     try:
-        results = data.query(query_str)
+        results = data.query(query_str).copy()
         
         # Statistics & Probability
         total = len(data)
@@ -133,12 +133,21 @@ if data is not None:
             with tab3:
                 c1, c2 = st.columns(2)
                 with c1:
-                    fig_pie = px.pie(results, names='Candle', title="Green vs Red Distribution",
-                                    color='Candle', color_discrete_map={'Green': '#00ffad', 'Red': '#ff5050'})
+                    # Explicitly rename columns after value_counts to avoid 'index' vs 'Candle' errors
+                    candle_dist = results['Candle'].value_counts().reset_index()
+                    candle_dist.columns = ['Candle_Type', 'Count']
+                    
+                    fig_pie = px.pie(candle_dist, names='Candle_Type', values='Count', title="Green vs Red Distribution",
+                                    color='Candle_Type', color_discrete_map={'Green': '#00ffad', 'Red': '#ff5050'})
                     st.plotly_chart(fig_pie, use_container_width=True)
                 with c2:
-                    fig_day = px.bar(results['Day'].value_counts().reset_index(), x='index', y='Day', 
-                                    title="Frequency by Day", labels={'index': 'Day', 'Day': 'Count'})
+                    # Explicitly rename columns for day distribution
+                    day_dist = results['Day'].value_counts().reset_index()
+                    day_dist.columns = ['Day_Name', 'Count']
+                    
+                    fig_day = px.bar(day_dist, x='Day_Name', y='Count', 
+                                    title="Frequency by Day", color='Day_Name',
+                                    color_discrete_sequence=px.colors.qualitative.Pastel)
                     st.plotly_chart(fig_day, use_container_width=True)
         else:
             st.warning("⚠️ No data matches this specific logic. Try relaxing the filters.")
