@@ -25,17 +25,21 @@ def get_pro_data(symbol, start, end):
         elif not symbol.startswith("^") and not symbol.endswith((".NS", ".BO")):
             symbol = f"{symbol.upper()}.NS"
             
+        # Download data
         df = yf.download(symbol, start=start, end=end, auto_adjust=True)
         if df.empty: return None
         
-        # Handle multi-index columns from yfinance
+        # FIX: Flatten MultiIndex columns if present (Fixes the TypeError)
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
+        
+        # Ensure 'Close' and 'Open' are treated as Series, not DataFrames
+        df = df[['Open', 'High', 'Low', 'Close', 'Volume']].copy()
             
         df = df.reset_index()
         df['Day'] = df['Date'].dt.day_name()
         
-        # Core candle logic
+        # Core candle logic - Using explicit column access to avoid ambiguity
         df['Body_Diff'] = df['Close'] - df['Open']
         df['Candle_Type'] = ["Green" if x > 0 else "Red" for x in df['Body_Diff']]
         
@@ -45,7 +49,7 @@ def get_pro_data(symbol, start, end):
         
         return df
     except Exception as e:
-        st.error(f"Error: {e}")
+        st.error(f"Error fetching data: {e}")
         return None
 
 def calculate_probability(df, day_name="Wednesday"):
@@ -56,7 +60,7 @@ def calculate_probability(df, day_name="Wednesday"):
     red_count = len(target_day[target_day['Candle_Type'] == "Red"])
     total = len(target_day)
     
-    prob_green = (green_count / total) * 100
+    prob_green = (green_count / total) * 100 if total > 0 else 0
     return prob_green, green_count, red_count
 
 # --- SIDEBAR ---
@@ -90,38 +94,41 @@ if data is not None:
     with col2:
         st.metric(f"Total {target_day_select}s", f"{greens + reds}")
     with col3:
-        trend = "Bullish" if prob > 50 else "Bearish"
+        trend = "Bullish Bias" if prob > 50 else "Bearish Bias" if prob < 50 else "Neutral"
         st.metric("Historical Bias", trend)
 
     st.divider()
 
     # Custom Query Section
     st.subheader("🔍 Advanced Query Engine")
-    st.info("Example: `(Close > Open) & (Pct_Change > 1)` or `(Day == 'Wednesday') & (Candle_Type == 'Red')`")
+    st.info("Query syntax examples: `Close > Open`, `Day == 'Wednesday'`, `(Pct_Change > 1) & (Volume > 1000000)`")
     user_query = st.text_input("Enter Python-style query:", value=f"Day == '{target_day_select}'")
     
     try:
+        # We use the .query() method but wrap it safely
         filtered_df = data.query(user_query)
         st.success(f"Found {len(filtered_df)} matches out of {len(data)} total records.")
         
         # Comparison Visuals
-        st.subheader("📊 Visual Comparison")
-        v_col1, v_col2 = st.columns(2)
-        
-        with v_col1:
-            # Result distribution for the query
-            q_counts = filtered_df['Candle_Type'].value_counts().reset_index()
-            q_counts.columns = ['Result', 'Count']
-            fig_bar = px.bar(q_counts, x='Result', y='Count', color='Result', 
-                             title="Filtered Candle Distribution",
-                             color_discrete_map={'Green': '#26a69a', 'Red': '#ef5350'})
-            st.plotly_chart(fig_bar, use_container_width=True)
+        if not filtered_df.empty:
+            st.subheader("📊 Visual Comparison")
+            v_col1, v_col2 = st.columns(2)
             
-        with v_col2:
-            fig_pie = px.pie(q_counts, names='Result', values='Count', 
-                             title="Probability Breakdown",
-                             color='Result', color_discrete_map={'Green': '#26a69a', 'Red': '#ef5350'})
-            st.plotly_chart(fig_pie, use_container_width=True)
+            with v_col1:
+                q_counts = filtered_df['Candle_Type'].value_counts().reset_index()
+                q_counts.columns = ['Result', 'Count']
+                fig_bar = px.bar(q_counts, x='Result', y='Count', color='Result', 
+                                 title="Filtered Candle Distribution",
+                                 color_discrete_map={'Green': '#26a69a', 'Red': '#ef5350'})
+                st.plotly_chart(fig_bar, use_container_width=True)
+                
+            with v_col2:
+                fig_pie = px.pie(q_counts, names='Result', values='Count', 
+                                 title="Probability Breakdown",
+                                 color='Result', color_discrete_map={'Green': '#26a69a', 'Red': '#ef5350'})
+                st.plotly_chart(fig_pie, use_container_width=True)
+        else:
+            st.warning("No data matches this query.")
 
         # Data Preview & Download
         with st.expander("📂 View Matched Data & Download"):
@@ -130,7 +137,8 @@ if data is not None:
             st.download_button("Download filtered data as CSV", csv, "market_analysis.csv", "text/csv")
             
     except Exception as e:
-        st.warning(f"Waiting for valid query... (Error: {e})")
+        st.error(f"Invalid Query: {e}")
+        st.info("Tip: Make sure to use single quotes for strings, e.g., Day == 'Wednesday'")
 
 else:
-    st.error("No data found. Please ensure the ticker name is correct.")
+    st.error("No data found. Please ensure the ticker name is correct and you have an internet connection.")
