@@ -8,12 +8,13 @@ from datetime import date, timedelta
 st.set_page_config(page_title="India Pro Market Analyzer", layout="wide", page_icon="💹")
 
 # Custom CSS for a sleek look
+# FIXED: Changed unsafe_allow_index to unsafe_allow_html
 st.markdown("""
     <style>
     .main { background-color: #0e1117; }
     .stMetric { background-color: #161b22; border-radius: 10px; padding: 15px; border: 1px solid #30363d; }
     </style>
-    """, unsafe_allow_index=True)
+    """, unsafe_allow_html=True)
 
 # --- FUNCTIONS ---
 @st.cache_data(ttl=3600)
@@ -29,17 +30,17 @@ def get_pro_data(symbol, start, end):
         df = yf.download(symbol, start=start, end=end, auto_adjust=True)
         if df.empty: return None
         
-        # FIX: Flatten MultiIndex columns if present (Fixes the TypeError)
+        # FIX: Flatten MultiIndex columns if present
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
         
-        # Ensure 'Close' and 'Open' are treated as Series, not DataFrames
+        # Ensure standard columns are present and clean
         df = df[['Open', 'High', 'Low', 'Close', 'Volume']].copy()
             
         df = df.reset_index()
         df['Day'] = df['Date'].dt.day_name()
         
-        # Core candle logic - Using explicit column access to avoid ambiguity
+        # Core candle logic
         df['Body_Diff'] = df['Close'] - df['Open']
         df['Candle_Type'] = ["Green" if x > 0 else "Red" for x in df['Body_Diff']]
         
@@ -83,7 +84,7 @@ if data is not None:
     st.title(f"📈 {ticker_input.upper()} Professional Analysis")
     
     # Probability Score Section
-    st.subheader("🎯 Probability Score")
+    st.subheader("🎯 Basic Day Probability")
     target_day_select = st.selectbox("Select Day to Analyze", ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"], index=2)
     
     prob, greens, reds = calculate_probability(data, target_day_select)
@@ -101,30 +102,35 @@ if data is not None:
 
     # Custom Query Section
     st.subheader("🔍 Advanced Query Engine")
-    st.info("Query syntax examples: `Close > Open`, `Day == 'Wednesday'`, `(Pct_Change > 1) & (Volume > 1000000)`")
+    st.info("Query syntax: `Close > Open` (Green), `Close < Open` (Red), `Open > Close.shift(1)` (Gap Up)")
     user_query = st.text_input("Enter Python-style query:", value=f"Day == '{target_day_select}'")
     
     try:
-        # We use the .query() method but wrap it safely
         filtered_df = data.query(user_query)
-        st.success(f"Found {len(filtered_df)} matches out of {len(data)} total records.")
+        
+        # Calculate Query-Specific Probability
+        total_records = len(data)
+        matches = len(filtered_df)
+        occurrence_rate = (matches / total_records) * 100 if total_records > 0 else 0
+        
+        st.success(f"Found {matches} matches. This setup occurs in {occurrence_rate:.1f}% of the historical data.")
         
         # Comparison Visuals
         if not filtered_df.empty:
-            st.subheader("📊 Visual Comparison")
+            st.subheader("📊 Visual Breakdown of Query Results")
             v_col1, v_col2 = st.columns(2)
             
             with v_col1:
                 q_counts = filtered_df['Candle_Type'].value_counts().reset_index()
                 q_counts.columns = ['Result', 'Count']
                 fig_bar = px.bar(q_counts, x='Result', y='Count', color='Result', 
-                                 title="Filtered Candle Distribution",
+                                 title="Candle Type Distribution in Results",
                                  color_discrete_map={'Green': '#26a69a', 'Red': '#ef5350'})
                 st.plotly_chart(fig_bar, use_container_width=True)
                 
             with v_col2:
                 fig_pie = px.pie(q_counts, names='Result', values='Count', 
-                                 title="Probability Breakdown",
+                                 title="Win/Loss Probability for this Query",
                                  color='Result', color_discrete_map={'Green': '#26a69a', 'Red': '#ef5350'})
                 st.plotly_chart(fig_pie, use_container_width=True)
         else:
@@ -137,8 +143,8 @@ if data is not None:
             st.download_button("Download filtered data as CSV", csv, "market_analysis.csv", "text/csv")
             
     except Exception as e:
-        st.error(f"Invalid Query: {e}")
-        st.info("Tip: Make sure to use single quotes for strings, e.g., Day == 'Wednesday'")
+        st.error(f"Query Error: {e}")
+        st.info("Ensure strings are in quotes, e.g., Day == 'Wednesday'")
 
 else:
-    st.error("No data found. Please ensure the ticker name is correct and you have an internet connection.")
+    st.error("No data found. Check the ticker and your internet connection.")
