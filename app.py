@@ -4,147 +4,148 @@ import pandas as pd
 import plotly.express as px
 from datetime import date, timedelta
 
-# Page config for professional feel
-st.set_page_config(page_title="India Pro Market Analyzer", layout="wide", page_icon="💹")
+# Page config for a professional data-heavy terminal feel
+st.set_page_config(page_title="Trader Query Terminal", layout="wide", page_icon="📟")
 
-# Custom CSS for a sleek look
-# FIXED: Changed unsafe_allow_index to unsafe_allow_html
+# Dark Terminal CSS
 st.markdown("""
     <style>
-    .main { background-color: #0e1117; }
-    .stMetric { background-color: #161b22; border-radius: 10px; padding: 15px; border: 1px solid #30363d; }
+    .main { background-color: #0b0e11; }
+    .stMetric { background-color: #1e2329; border-radius: 4px; padding: 15px; border-left: 5px solid #f0b90b; }
+    .stTextInput>div>div>input { font-family: 'Courier New', Courier, monospace; color: #f0b90b; background-color: #2b3139; }
+    .reportview-container .main .block-container { padding-top: 2rem; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- FUNCTIONS ---
+# --- ADVANCED TRADING FUNCTIONS ---
 @st.cache_data(ttl=3600)
-def get_pro_data(symbol, start, end):
+def get_terminal_data(symbol, start, end):
     try:
-        # Ticker fix for Indian context
+        # Ticker resolution
         if symbol.upper() == "NIFTY": symbol = "^NSEI"
-        elif symbol.upper() == "SENSEX": symbol = "^BSESN"
+        elif symbol.upper() == "BANKNIFTY": symbol = "^NSEBANK"
         elif not symbol.startswith("^") and not symbol.endswith((".NS", ".BO")):
             symbol = f"{symbol.upper()}.NS"
             
-        # Download data
         df = yf.download(symbol, start=start, end=end, auto_adjust=True)
         if df.empty: return None
         
-        # FIX: Flatten MultiIndex columns if present
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
         
-        # Ensure standard columns are present and clean
         df = df[['Open', 'High', 'Low', 'Close', 'Volume']].copy()
-            
         df = df.reset_index()
+        
+        # --- Advanced Pre-Calculated Columns for Traders ---
         df['Day'] = df['Date'].dt.day_name()
+        df['Month'] = df['Date'].dt.month_name()
         
-        # Core candle logic
-        df['Body_Diff'] = df['Close'] - df['Open']
-        df['Candle_Type'] = ["Green" if x > 0 else "Red" for x in df['Body_Diff']]
+        # Price Action Basics
+        df['Body'] = df['Close'] - df['Open']
+        df['Candle'] = ["Green" if x > 0 else "Red" for x in df['Body']]
+        df['Prev_Close'] = df['Close'].shift(1)
+        df['Gap'] = df['Open'] - df['Prev_Close']
+        df['Change_Pct'] = (df['Close'] / df['Prev_Close'] - 1) * 100
         
-        # Professional metrics
-        df['Pct_Change'] = df['Close'].pct_change() * 100
-        df['Range'] = df['High'] - df['Low']
+        # Technicals for Queries
+        df['MA20'] = df['Close'].rolling(window=20).mean()
+        df['MA50'] = df['Close'].rolling(window=50).mean()
+        df['Vol_MA20'] = df['Volume'].rolling(window=20).mean()
+        df['High_Low_Range'] = df['High'] - df['Low']
         
-        return df
+        return df.dropna()
     except Exception as e:
-        st.error(f"Error fetching data: {e}")
+        st.error(f"Data Link Failure: {e}")
         return None
 
-def calculate_probability(df, day_name="Wednesday"):
-    target_day = df[df['Day'] == day_name]
-    if target_day.empty: return 0, 0, 0
-    
-    green_count = len(target_day[target_day['Candle_Type'] == "Green"])
-    red_count = len(target_day[target_day['Candle_Type'] == "Red"])
-    total = len(target_day)
-    
-    prob_green = (green_count / total) * 100 if total > 0 else 0
-    return prob_green, green_count, red_count
+# --- UI HEADER ---
+st.title("📟 Trader Query Terminal")
+st.caption("Advanced Logic-Based Analysis for Indian Markets")
 
-# --- SIDEBAR ---
-st.sidebar.title("🛠 Settings")
-ticker_input = st.sidebar.text_input("Ticker (NIFTY, RELIANCE, TCS)", "NIFTY")
-time_range = st.sidebar.selectbox("Timeline", ["Last 1 Year", "Last 3 Years", "Last 5 Years", "Max", "Custom"])
+# --- SIDEBAR: ASSET CONFIG ---
+st.sidebar.title("📡 Data Stream")
+ticker = st.sidebar.text_input("SYMBOL (NIFTY, BANKNIFTY, SBIN, TCS)", "NIFTY")
+time_range = st.sidebar.selectbox("TIMELINE", ["Last 1 Year", "Last 3 Years", "Last 5 Years", "Max"])
 
-if time_range == "Custom":
-    start_dt = st.sidebar.date_input("Start", value=pd.to_datetime("2020-01-01"))
-    end_dt = st.sidebar.date_input("End", value=date.today())
-else:
-    end_dt = date.today()
-    years = 1 if "1" in time_range else 3 if "3" in time_range else 5 if "5" in time_range else 20
-    start_dt = end_dt - timedelta(days=years*365)
+# Date Calculation
+end_date = date.today()
+years_map = {"Last 1 Year": 1, "Last 3 Years": 3, "Last 5 Years": 5, "Max": 20}
+start_date = end_date - timedelta(days=years_map[time_range]*365)
 
-data = get_pro_data(ticker_input, start_dt, end_dt)
+data = get_terminal_data(ticker, start_date, end_date)
 
-# --- MAIN UI ---
+# --- HELP SYSTEM ---
+with st.expander("❓ How to Build Advanced Queries (Cheat Sheet)"):
+    col_a, col_b = st.columns(2)
+    with col_a:
+        st.markdown("""
+        **Basic Syntax**
+        - `Day == 'Wednesday'` : Only Wednesdays
+        - `Candle == 'Green'` : Bullish days
+        - `Close > MA20` : Above 20-day moving average
+        - `Volume > Vol_MA20 * 2` : Volume breakout (2x avg)
+        """)
+    with col_b:
+        st.markdown("""
+        **Complex Logic**
+        - `(Day == 'Thursday') & (Gap > 0)` : Expiry day gap-ups
+        - `(Change_Pct > 2) & (Volume > Vol_MA20)` : High momentum
+        - `(Month == 'October') & (Candle == 'Red')` : Bearish Octobers
+        """)
+    st.info("💡 Pro Tip: Use `&` for AND, `|` for OR. Always use single quotes for text.")
+
+# --- QUERY ENGINE ---
 if data is not None:
-    st.title(f"📈 {ticker_input.upper()} Professional Analysis")
-    
-    # Probability Score Section
-    st.subheader("🎯 Basic Day Probability")
-    target_day_select = st.selectbox("Select Day to Analyze", ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"], index=2)
-    
-    prob, greens, reds = calculate_probability(data, target_day_select)
-    
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric(f"{target_day_select} Bullish Probability", f"{prob:.1f}%")
-    with col2:
-        st.metric(f"Total {target_day_select}s", f"{greens + reds}")
-    with col3:
-        trend = "Bullish Bias" if prob > 50 else "Bearish Bias" if prob < 50 else "Neutral"
-        st.metric("Historical Bias", trend)
+    st.subheader("⚙️ Logic Input")
+    query_str = st.text_input("Enter Trader Logic Query:", value="Day == 'Wednesday' and Gap > 0")
 
-    st.divider()
-
-    # Custom Query Section
-    st.subheader("🔍 Advanced Query Engine")
-    st.info("Query syntax: `Close > Open` (Green), `Close < Open` (Red), `Open > Close.shift(1)` (Gap Up)")
-    user_query = st.text_input("Enter Python-style query:", value=f"Day == '{target_day_select}'")
-    
     try:
-        filtered_df = data.query(user_query)
+        results = data.query(query_str)
         
-        # Calculate Query-Specific Probability
-        total_records = len(data)
-        matches = len(filtered_df)
-        occurrence_rate = (matches / total_records) * 100 if total_records > 0 else 0
+        # Statistics & Probability
+        total = len(data)
+        matches = len(results)
+        prob_win = (len(results[results['Candle'] == 'Green']) / matches * 100) if matches > 0 else 0
         
-        st.success(f"Found {matches} matches. This setup occurs in {occurrence_rate:.1f}% of the historical data.")
-        
-        # Comparison Visuals
-        if not filtered_df.empty:
-            st.subheader("📊 Visual Breakdown of Query Results")
-            v_col1, v_col2 = st.columns(2)
-            
-            with v_col1:
-                q_counts = filtered_df['Candle_Type'].value_counts().reset_index()
-                q_counts.columns = ['Result', 'Count']
-                fig_bar = px.bar(q_counts, x='Result', y='Count', color='Result', 
-                                 title="Candle Type Distribution in Results",
-                                 color_discrete_map={'Green': '#26a69a', 'Red': '#ef5350'})
-                st.plotly_chart(fig_bar, use_container_width=True)
-                
-            with v_col2:
-                fig_pie = px.pie(q_counts, names='Result', values='Count', 
-                                 title="Win/Loss Probability for this Query",
-                                 color='Result', color_discrete_map={'Green': '#26a69a', 'Red': '#ef5350'})
-                st.plotly_chart(fig_pie, use_container_width=True)
-        else:
-            st.warning("No data matches this query.")
+        # Metrics Row
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Total Records", total)
+        m2.metric("Matches Found", matches)
+        m3.metric("Occurrence Rate", f"{(matches/total*100):.1f}%")
+        m4.metric("Bullish Edge", f"{prob_win:.1f}%")
 
-        # Data Preview & Download
-        with st.expander("📂 View Matched Data & Download"):
-            st.dataframe(filtered_df, use_container_width=True)
-            csv = filtered_df.to_csv(index=False).encode('utf-8')
-            st.download_button("Download filtered data as CSV", csv, "market_analysis.csv", "text/csv")
+        # Visualization
+        if not results.empty:
+            tab1, tab2, tab3 = st.tabs(["📊 Performance Chart", "📋 Data Terminal", "📈 Distribution"])
             
+            with tab1:
+                # Cumulative return simulation
+                results['Signal_Return'] = results['Body']
+                results['Cumulative'] = results['Signal_Return'].cumsum()
+                fig_perf = px.line(results, x='Date', y='Cumulative', title="Cumulative Points Capture of this Logic")
+                fig_perf.update_traces(line_color='#f0b90b')
+                st.plotly_chart(fig_perf, use_container_width=True)
+                
+            with tab2:
+                st.dataframe(results.style.format(subset=['Change_Pct', 'Gap', 'Body'], formatter="{:.2f}"), use_container_width=True)
+                st.download_button("💾 Export Results", results.to_csv(index=False), f"{ticker}_query_results.csv")
+                
+            with tab3:
+                c1, c2 = st.columns(2)
+                with c1:
+                    fig_pie = px.pie(results, names='Candle', title="Green vs Red Distribution",
+                                    color='Candle', color_discrete_map={'Green': '#00ffad', 'Red': '#ff5050'})
+                    st.plotly_chart(fig_pie, use_container_width=True)
+                with c2:
+                    fig_day = px.bar(results['Day'].value_counts().reset_index(), x='index', y='Day', 
+                                    title="Frequency by Day", labels={'index': 'Day', 'Day': 'Count'})
+                    st.plotly_chart(fig_day, use_container_width=True)
+        else:
+            st.warning("⚠️ No data matches this specific logic. Try relaxing the filters.")
+
     except Exception as e:
-        st.error(f"Query Error: {e}")
-        st.info("Ensure strings are in quotes, e.g., Day == 'Wednesday'")
+        st.error(f"Syntax Error in Logic: {e}")
+        st.info("Check the Help section above for correct query formatting.")
 
 else:
-    st.error("No data found. Check the ticker and your internet connection.")
+    st.error("Connection failed. Ensure ticker is valid (e.g., NIFTY, SBIN).")
